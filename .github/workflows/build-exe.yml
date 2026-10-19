@@ -1,0 +1,42 @@
+name: Build Windows executable
+
+# Builds the standalone Win11LoginSim.exe on a real Windows runner (PyInstaller
+# cannot cross-compile a Windows binary from Linux/macOS, so this workflow is
+# the source of truth for the .exe artifact).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "run.py"
+      - "build.spec"
+      - "requirements.txt"
+      - ".github/workflows/build-exe.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller build.spec
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Win11LoginSim-windows-exe
+          path: dist/Win11LoginSim.exe
+          if-no-files-found: error
