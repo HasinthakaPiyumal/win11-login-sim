@@ -21,12 +21,20 @@ from __future__ import annotations
 import logging
 import sys
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
-from PySide6.QtWidgets import QApplication, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QAbstractAnimation, QEasingCurve, QPoint, QPropertyAnimation, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QKeySequence, QPalette, QShortcut
+from PySide6.QtWidgets import (
+    QApplication,
+    QGraphicsOpacityEffect,
+    QLabel,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
-from .assets import make_wallpaper
+from .assets import blur_pixmap, make_wallpaper
 from .config import Config, load_config
+from .theme import Scale, ui_scale
 from .screens.lock_screen import LockScreen
 from .screens.login_screen import LoginScreen
 from .screens.surprise_screen import SurpriseScreen
@@ -43,13 +51,25 @@ class MainWindow(QWidget):
         self.setWindowTitle("Sign-in Simulation (not a real Windows sign-in screen)")
 
         screen = QGuiApplication.primaryScreen()
-        geometry = screen.geometry() if screen else self.screen().geometry()
-        wallpaper = make_wallpaper(geometry.size(), cfg.accent_hex)
+        geometry = screen.geometry()
+        dpr = screen.devicePixelRatio()
+        px = Scale(ui_scale(geometry.height()))
+        wallpaper = make_wallpaper(
+            round(geometry.width() * dpr), round(geometry.height() * dpr), cfg.accent_hex
+        )
+        # Acrylic-style backdrop for the sign-in and surprise screens.
+        backdrop = blur_pixmap(wallpaper, max(wallpaper.width(), wallpaper.height()) / 30)
+
+        palette = self.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(0, 0, 0))
+        self.setPalette(palette)
+        self.setAutoFillBackground(True)
+        self._transitioning = False
 
         self.stack = QStackedWidget(self)
-        self.lock_screen = LockScreen(wallpaper, cfg, self.stack)
-        self.login_screen = LoginScreen(wallpaper, cfg, self.stack)
-        self.surprise_screen = SurpriseScreen(wallpaper, cfg, self.stack)
+        self.lock_screen = LockScreen(wallpaper, cfg, px, self.stack)
+        self.login_screen = LoginScreen(backdrop, cfg, px, self.stack)
+        self.surprise_screen = SurpriseScreen(backdrop, cfg, px, self.stack)
 
         for w in (self.lock_screen, self.login_screen, self.surprise_screen):
             self.stack.addWidget(w)
@@ -92,13 +112,49 @@ class MainWindow(QWidget):
 
     # ---- screen transitions ------------------------------------------
 
-    def _show_login(self) -> None:
+    def _snapshot_overlay(self, source: QWidget) -> QLabel:
+        """Freeze ``source`` into a label above the stack for a transition."""
+        overlay = QLabel(self)
+        overlay.setPixmap(source.grab())
+        overlay.setGeometry(self.rect())
+        overlay.show()
+        overlay.raise_()
+        return overlay
+
+    def _show_login(self, typed: str = "") -> None:
+        """Slide the lock screen up to reveal the sign-in screen."""
+        if self._transitioning or self.stack.currentWidget() is not self.lock_screen:
+            return
+        self._transitioning = True
+        overlay = self._snapshot_overlay(self.lock_screen)
         self.stack.setCurrentWidget(self.login_screen)
-        self.login_screen.on_shown()
+        self.login_screen.on_shown(typed)
+
+        anim = QPropertyAnimation(overlay, b"pos", self)
+        anim.setDuration(500)
+        anim.setStartValue(QPoint(0, 0))
+        anim.setEndValue(QPoint(0, -self.height()))
+        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        anim.finished.connect(overlay.deleteLater)
+        anim.finished.connect(lambda: setattr(self, "_transitioning", False))
+        anim.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def _show_surprise(self) -> None:
+        """Cross-fade from the sign-in screen to the surprise screen."""
+        overlay = self._snapshot_overlay(self.login_screen)
+        effect = QGraphicsOpacityEffect(overlay)
+        overlay.setGraphicsEffect(effect)
         self.stack.setCurrentWidget(self.surprise_screen)
         self.surprise_screen.on_shown()
+        self.login_screen.reset_busy()
+
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(700)
+        anim.setStartValue(1.0)
+        anim.setEndValue(0.0)
+        anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        anim.finished.connect(overlay.deleteLater)
+        anim.start(QAbstractAnimation.DeletionPolicy.DeleteWhenStopped)
 
 
 def run() -> int:
@@ -108,8 +164,13 @@ def run() -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     app.setApplicationName("Win11LoginSim")
+    # Fusion renders our custom-styled controls identically on every machine.
+    app.setStyle("Fusion")
 
     try:
         cfg = load_config()
@@ -124,6 +185,7 @@ def run() -> int:
         return 1
 
     window.showFullScreen()
+    window.lock_screen.setFocus()
 
     try:
         return app.exec()

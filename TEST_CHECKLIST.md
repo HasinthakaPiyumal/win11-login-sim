@@ -45,19 +45,25 @@ For each:
 
 ## Keyboard & navigation
 
-- [ ] On the lock screen, any key press advances to the login screen.
+- [ ] On the lock screen, any key press slides it up to the login screen.
+- [ ] A printable key pressed on the lock screen appears as the first
+      character in the password box.
 - [ ] On the lock screen, a mouse click also advances to the login screen.
-- [ ] Tab cycles focus: password field → eye toggle → sign‑in button (and
-      back around) in a sensible order.
+- [ ] Tab cycles focus: password field → reveal button (visible once text is
+      typed) → submit arrow, in a sensible order; focused buttons show an outline.
 - [ ] Typing in the password field and pressing **Enter** submits.
 - [ ] Clicking the arrow button submits.
-- [ ] Submitting empty input shows the inline "enter anything" message and
-      does **not** proceed.
+- [ ] Submitting empty input shakes the password box and does **not** proceed.
 - [ ] Submitting any non‑empty text (default `demo_mode = "any"`) shows the
-      spinner briefly, then transitions to the surprise screen.
+      progress ring and "Welcome", then cross-fades to the surprise screen.
 - [ ] With `demo_mode = "fixed"`, only `demo_password` is accepted; any other
-      text shows the retry message and clears the field.
-- [ ] Eye‑icon toggle switches between masked and revealed text correctly.
+      text shows "The password is incorrect. Try again." and shakes the box.
+- [ ] No on-screen hint text appears on any screen.
+- [ ] Network/battery/accessibility/power glyphs render bottom-right
+      (Segoe Fluent Icons) and do nothing when clicked.
+- [ ] Reveal button switches between masked and revealed text correctly.
+- [ ] Surprise screen animation stays smooth (no visible stutter) at native
+      resolution.
 - [ ] **Escape** closes the app when `allow_escape_exit` is `true`.
 - [ ] **Ctrl+Shift+Q** closes the app from the lock screen, login screen, and
       surprise screen, every time, with no exceptions.

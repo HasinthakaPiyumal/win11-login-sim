@@ -1,49 +1,65 @@
-"""Windows-11-style lock screen: wallpaper, clock, date, "press any key" hint.
+"""Windows-11-style lock screen: wallpaper, large clock and date.
 
-Clicking anywhere or pressing any key advances to the login screen, matching
-real Windows lock-screen behaviour (this is purely a UI transition; no input
-hook is installed, Qt simply receives events normally sent to this window).
+Clicking anywhere or pressing any key advances to the sign-in screen, as on
+real Windows. A printable key is forwarded so it becomes the first typed
+character. No input hook is installed; Qt only delivers events sent to this
+window.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import QDateTime, Qt, QTimer, Signal
-from PySide6.QtGui import QPainter
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QDateTime, QLocale, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QPixmap
+from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ..config import Config
-from ..theme import Palette, font
+from ..theme import Glyph, Scale, font
+from ..widgets.status_icons import StatusIcons
+from .base import BackgroundScreen
 
 
-class LockScreen(QWidget):
+def _time_format() -> str:
+    """System short time format without AM/PM, as the lock screen shows it."""
+    fmt = QLocale.system().timeFormat(QLocale.FormatType.ShortFormat)
+    for token in ("AP", "ap", "A", "a"):
+        fmt = fmt.replace(token, "")
+    return fmt.strip() or "h:mm"
+
+
+def _shadowed_label(parent: QWidget, px: Scale, size: int, weight: QFont.Weight) -> QLabel:
+    label = QLabel(parent)
+    label.setFont(font(px(size), weight))
+    label.setStyleSheet("color: white;")
+    label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+    shadow = QGraphicsDropShadowEffect(label)
+    shadow.setBlurRadius(px(24))
+    shadow.setOffset(0, px(2))
+    shadow.setColor(QColor(0, 0, 0, 80))
+    label.setGraphicsEffect(shadow)
+    return label
+
+
+class LockScreen(BackgroundScreen):
     """First screen shown: wallpaper + clock, waiting for any input."""
 
-    advance_requested = Signal()
+    advance_requested = Signal(str)
 
-    def __init__(self, wallpaper, cfg: Config, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._wallpaper = wallpaper
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+    def __init__(self, wallpaper: QPixmap, cfg: Config, px: Scale, parent: QWidget | None = None):
+        super().__init__(wallpaper, px, parent)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._time_format = _time_format()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addStretch(3)
+        layout.setContentsMargins(px(24), 0, px(24), px(20))
+        layout.setSpacing(0)
+        layout.addStretch(1)
 
+        self.time_label = self.date_label = None
         if cfg.show_clock:
-            self.time_label = QLabel(self)
-            self.time_label.setFont(font(72))
-            self.time_label.setStyleSheet("color: white; background: transparent;")
-            self.time_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-            self.date_label = QLabel(self)
-            self.date_label.setFont(font(20))
-            self.date_label.setStyleSheet(
-                "color: rgba(255,255,255,0.85); background: transparent;"
-            )
-            self.date_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
+            self.time_label = _shadowed_label(self, px, 120, QFont.Weight.DemiBold)
+            self.date_label = _shadowed_label(self, px, 24, QFont.Weight.Medium)
             layout.addWidget(self.time_label)
+            layout.addSpacing(px(2))
             layout.addWidget(self.date_label)
 
             self._clock_timer = QTimer(self)
@@ -51,46 +67,32 @@ class LockScreen(QWidget):
             self._clock_timer.timeout.connect(self._update_clock)
             self._clock_timer.start()
             self._update_clock()
-        else:
-            self.time_label = None
-            self.date_label = None
 
-        layout.addStretch(2)
+        layout.addStretch(6)
 
-        hint = QLabel("Click anywhere or press any key to continue", self)
-        hint.setFont(font(14))
-        hint.setStyleSheet("color: rgba(255,255,255,0.8); background: transparent;")
-        hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(hint)
-        layout.addSpacing(40)
-
-        self.setLayout(layout)
+        status = QHBoxLayout()
+        status.addStretch(1)
+        status.addWidget(StatusIcons((Glyph.WIFI, Glyph.BATTERY), px, self))
+        layout.addLayout(status)
 
     def _update_clock(self) -> None:
-        if self.time_label is None:
-            return
         now = QDateTime.currentDateTime()
-        self.time_label.setText(now.toString("h:mm"))
-        self.date_label.setText(now.toString("dddd, MMMM d"))
-
-    def paintEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        painter = QPainter(self)
-        if not self._wallpaper.isNull():
-            scaled = self._wallpaper.scaled(
-                self.size(),
-                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            x = (scaled.width() - self.width()) // 2
-            y = (scaled.height() - self.height()) // 2
-            painter.drawPixmap(0, 0, scaled, x, y, self.width(), self.height())
-        painter.end()
-        super().paintEvent(event)
+        self.time_label.setText(now.toString(self._time_format))
+        self.date_label.setText(QLocale.system().toString(now.date(), "dddd, MMMM d"))
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self.advance_requested.emit()
+        self.advance_requested.emit("")
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 (Qt override)
-        self.advance_requested.emit()
+        text = event.text()
+        blocked = (
+            Qt.KeyboardModifier.ControlModifier
+            | Qt.KeyboardModifier.AltModifier
+            | Qt.KeyboardModifier.MetaModifier
+        )
+        typed = ""
+        if text.strip() and text.isprintable() and not (event.modifiers() & blocked):
+            typed = text
+        self.advance_requested.emit(typed)
         super().keyPressEvent(event)

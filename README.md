@@ -56,12 +56,18 @@ The app opens full‑screen on your primary display.
 
 ### Using it
 
-1. **Lock screen** — click or press any key to continue.
-2. **Sign‑in screen** — type anything in the password field (show/hide with
-   the eye icon) and press **Enter** or click the arrow button. A brief
-   loading spinner plays, then it "signs you in."
-3. **Surprise screen** — shows the configured message with a soft fade‑in and
-   optional countdown.
+1. **Lock screen**: large clock and date over a generated "bloom" wallpaper.
+   Click or press any key and it slides up. A typed character carries over
+   into the password box, as on Windows.
+2. **Sign-in screen**: blurred backdrop, account picture, name and a
+   Windows 11-style password box (reveal button and submit arrow inside it).
+   Press **Enter** or the arrow. Empty input makes the box shake. Otherwise a
+   progress ring and "Welcome" play briefly.
+3. **Surprise screen**: cross-fades in with drifting lights, twinkling
+   sparkles, a bobbing gift and the configured message.
+
+No instructions or hints are shown on screen. The exit shortcuts below
+always work.
 
 ### Exiting — always available
 
@@ -210,8 +216,10 @@ win11-login-sim/
     ├── utils/paths.py
     ├── widgets/
     │   ├── password_field.py
-    │   └── spinner.py
+    │   ├── spinner.py
+    │   └── status_icons.py     # decorative network/battery/power glyphs
     └── screens/
+        ├── base.py             # shared cover-scaled background
         ├── lock_screen.py
         ├── login_screen.py
         └── surprise_screen.py
